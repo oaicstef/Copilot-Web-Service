@@ -1,0 +1,112 @@
+#!/bin/sh
+# Launches ttyd serving the mobile-friendly Copilot console page.
+#
+# All values are overridable from /etc/copilot-ttyd/env, which systemd loads
+# via EnvironmentFile= (see copilot-web.service). Keeping secrets there instead
+# of in the unit stops them from living in a world-readable unit file.
+#
+# Two authentication modes:
+#
+#   TTYD_AUTH_HEADER   (preferred) the reverse proxy authenticates the user and
+#                      injects this header on the upstream request. ttyd only
+#                      checks that the header is present and non-empty, so this
+#                      process holds no password and nothing can leak via `ps`.
+#                      The proxy MUST strip any client-supplied copy of it.
+#   TTYD_CREDENTIAL    ttyd's own HTTP basic auth. Works without a proxy, but
+#                      the password is visible in the process argument list.
+
+set -eu
+
+TTYD_LISTEN="${TTYD_LISTEN:-0.0.0.0}"
+TTYD_PORT="${TTYD_PORT:-7681}"
+TTYD_INDEX="${TTYD_INDEX:-/home/oaicstef/src/copilot-web/web/index.html}"
+TTYD_BASE_PATH="${TTYD_BASE_PATH:-}"
+TTYD_FONT_SIZE="${TTYD_FONT_SIZE:-16}"
+TTYD_SCROLLBACK="${TTYD_SCROLLBACK:-5000}"
+TTYD_CHECK_ORIGIN="${TTYD_CHECK_ORIGIN:-1}"
+# -O is worth keeping: this console is reachable from the internet, and a browser
+# replays cached basic-auth credentials, so a hostile page could otherwise open a
+# WebSocket to it. It does, however, break iOS Home Screen / standalone mode,
+# where WebKit sends `Origin: null` or omits it — the page loads, /token succeeds,
+# and only the upgrade is refused (`W: User code denied connection` in the log).
+# Set TTYD_CHECK_ORIGIN=0 only if you need the Home Screen icon to work.
+TTYD_AUTH_HEADER="${TTYD_AUTH_HEADER:-}"
+TTYD_CREDENTIAL="${TTYD_CREDENTIAL:-}"
+# Set TTYD_NO_AUTH=1 only when something in front of ttyd (a reverse proxy)
+# authenticates AND ttyd is not reachable directly. See the guard below and
+# deploy/nginx-cookie-auth.conf.
+TTYD_NO_AUTH="${TTYD_NO_AUTH:-}"
+COPILOT_BIN="${COPILOT_BIN:-/home/oaicstef/.local/bin/copilot}"
+# Extra arguments for the CLI. Scrolling depends on mouse support being left ON:
+# the TUI scrolls its transcript with the mouse wheel, in alt screen mode only
+# (`--mouse [on|off]  Enable mouse support in alt screen mode`), and it is the only
+# scroll there is — the transcript lives on the pane's alternate screen, where tmux
+# keeps no history, so xterm has no scrollback to move either. `--no-mouse` turns
+# the wheel off and nothing takes its place (it does NOT create a scrollback).
+# `--mouse on` is therefore the setting for this console; it also survives someone
+# toggling mouse off in the CLI's own settings. Deliberately unquoted below so the
+# string word-splits into separate arguments.
+COPILOT_ARGS="${COPILOT_ARGS:---mouse on}"
+COPILOT_TMUX_SESSION="${COPILOT_TMUX_SESSION:-copilot}"
+
+if [ ! -f "$TTYD_INDEX" ]; then
+  echo "copilot-web-run: $TTYD_INDEX is missing. Run 'npm run build' in the project first." >&2
+  exit 1
+fi
+
+# Refusing to start without auth is the safe default: it stops a typo or a
+# half-applied configuration from silently exposing an unauthenticated shell.
+# TTYD_NO_AUTH=1 overrides it, and is only correct when a reverse proxy in front
+# authenticates (see deploy/nginx-cookie-auth.conf) and ttyd is bound to loopback.
+if [ "$TTYD_NO_AUTH" != "1" ] && [ -z "$TTYD_AUTH_HEADER" ] && [ -z "$TTYD_CREDENTIAL" ]; then
+  echo "copilot-web-run: no auth configured. Set TTYD_AUTH_HEADER (preferred) or" >&2
+  echo "  TTYD_CREDENTIAL, or TTYD_NO_AUTH=1 when a reverse proxy authenticates in" >&2
+  echo "  front of ttyd and ttyd is not reachable directly." >&2
+  exit 1
+fi
+
+set -- ttyd \
+  -i "$TTYD_LISTEN" \
+  -p "$TTYD_PORT" \
+  -W \
+  -w /home/oaicstef \
+  -I "$TTYD_INDEX" \
+  -t "fontSize=$TTYD_FONT_SIZE" \
+  -t "scrollback=$TTYD_SCROLLBACK" \
+  -t 'fontFamily=ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' \
+  -t 'disableLeaveAlert=true' \
+  -t 'reconnect=3' \
+  -t 'titleFixed=Copilot'
+
+if [ -n "$TTYD_AUTH_HEADER" ]; then
+  set -- "$@" -H "$TTYD_AUTH_HEADER"
+elif [ -n "$TTYD_CREDENTIAL" ]; then
+  set -- "$@" -c "$TTYD_CREDENTIAL"
+fi
+
+if [ "$TTYD_CHECK_ORIGIN" = "1" ]; then
+  set -- "$@" -O
+fi
+
+if [ -n "$TTYD_BASE_PATH" ]; then
+  set -- "$@" -b "$TTYD_BASE_PATH"
+fi
+
+# A full-screen TUI keeps its transcript on tmux's alternate screen, which stores
+# no history at all — measured `#{history_size}` = 0 — so nothing ever reaches a
+# terminal scrollback and dropping smcup/rmcup from `terminal-overrides` only
+# changed what the outer terminal saw, not what could be scrolled. Scrollback is
+# therefore not how this console scrolls; leave tmux's screen handling alone and
+# keep the wheel working instead.
+tmux start-server 2>/dev/null || true
+tmux set-option -g history-limit "$TTYD_SCROLLBACK" 2>/dev/null || true
+# tmux `mouse` must stay OFF, and this is load-bearing rather than cosmetic: with
+# it off tmux passes a wheel event through to the pane application (measured: the
+# CLI scrolled its transcript), while with `mouse on` tmux keeps the wheel for its
+# own copy-mode bindings and the application receives nothing, which silently kills
+# desktop scrolling. tmux has no scrollback here for copy-mode to show anyway.
+tmux set-option -g mouse off 2>/dev/null || true
+
+# COPILOT_ARGS is intentionally unquoted so '--a --b' becomes two arguments.
+# shellcheck disable=SC2086
+exec "$@" tmux new -A -s "$COPILOT_TMUX_SESSION" "$COPILOT_BIN" $COPILOT_ARGS

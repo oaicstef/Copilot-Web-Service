@@ -1,0 +1,266 @@
+/*
+ * Copilot Web Console — mobile overlay styles (inlined into index.html).
+ * High-contrast, large-target palette; keeps the terminal usable one-handed.
+ */
+
+:root {
+  --cw-bg: #0b1220;
+  --cw-surface: #111c2e;
+  --cw-surface-active: #1d4ed8;
+  --cw-border: #33415570;
+  --cw-text: #e8eefc;
+  --cw-muted: #9fb0cc;
+  --cw-accent: #60a5fa;
+  --cw-danger: #fca5a5;
+  --cw-warn: #fcd34d;
+  --cw-keyspace: 0px;
+  --cw-btn: 30px;
+  --cw-btn-font: 13px;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #000;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Pin the terminal to the visual viewport above the toolbar. Anchoring with
+   fixed insets instead of percentage/vh heights is robust on mobile Safari,
+   where the collapsing URL bar makes 100vh/100dvh drift from the real view. */
+#terminal-container {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: var(--cw-keyspace, 0px) !important;
+  width: auto !important;
+  height: auto !important;
+  margin: 0 !important;
+  max-height: none !important;
+  box-sizing: border-box;
+}
+
+/* Both rules below are scoped to #terminal-container rather than to `.xterm`.
+   xterm adds the `xterm` class to the element itself while it opens, and ttyd
+   fits the terminal at that moment — so a `.terminal.xterm` / `.xterm .xterm-viewport`
+   rule is not in force yet when the size is measured. It measured ttyd's own 5px
+   padding plus a 10px scrollbar, 20px in total, and settled on 41 columns where
+   43 fit (measured with a 390px viewport and xterm's 9px cell); nothing re-fits
+   afterwards. Matching from the container keeps both out of that first fit. */
+#terminal-container .terminal {
+  height: 100% !important;
+  max-height: 100% !important;
+  box-sizing: border-box;
+  /* ttyd's own stylesheet gives `.terminal` a 5px padding on every side. On a
+     phone that is 10px of the grid's width, and it reads as dead space at the
+     edges rather than as a margin, so take it back. */
+  padding: 0 !important;
+}
+
+/* xterm always reserves a scrollbar (`overflow-y: scroll`), but nothing here
+   scrolls through it: the transcript is scrolled by the CLI's own mouse wheel
+   (and by swipes, which the overlay turns into wheel reports). It is therefore
+   pure decoration — and not free, because it also reserves 10px of the grid's
+   width. Measured on a 390px-wide screen before this: 40-41 columns, a 369-373px
+   grid, and a #3b4a63 bar down the right edge. Hide it and that width goes back
+   to the terminal. */
+#terminal-container .xterm-viewport {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+#terminal-container .xterm-viewport::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+#cw-root {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 40;
+  font-family: var(--cw-font, system-ui, -apple-system, 'Segoe UI', sans-serif);
+  color: var(--cw-text);
+}
+
+/* ------------------------------------------------------------- status ---- */
+
+#cw-status {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(92vw, 460px);
+  padding: 10px 14px;
+  border: 1px solid var(--cw-border);
+  border-radius: 999px;
+  background: var(--cw-surface);
+  box-shadow: 0 8px 24px #0009;
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+#cw-status[hidden] {
+  display: none;
+}
+
+#cw-status[data-state='connecting'] {
+  color: var(--cw-warn);
+}
+
+#cw-status[data-state='offline'] {
+  color: var(--cw-danger);
+  border-color: #fca5a955;
+}
+
+#cw-reconnect {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--cw-accent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--cw-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#cw-reconnect[hidden] {
+  display: none;
+}
+
+/* ------------------------------------------------------------ toolbar ---- */
+
+#cw-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  box-sizing: border-box;
+  padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px));
+  background: var(--cw-bg);
+  border-top: 1px solid var(--cw-border);
+}
+
+/* Each row is a single, non-wrapping line. Its key buttons share the available
+   width and shrink to fit, so a key can never wrap onto its own line, scroll
+   away or be pushed off screen — the failures that hid the arrow keys. The
+   less-used keys live in #cw-extras, revealed by the More keys button. */
+.cw-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+#cw-extras {
+  display: none;
+}
+
+.cw-expanded #cw-extras {
+  display: flex;
+}
+
+.cw-collapsed #cw-toolbar {
+  display: none;
+}
+
+.cw-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--cw-btn);
+  padding: 0 3px;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cw-border);
+  border-radius: 7px;
+  background: var(--cw-surface);
+  color: var(--cw-text);
+  font-size: var(--cw-btn-font);
+  font-weight: 600;
+  font-variant-ligatures: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.cw-btn:active {
+  background: var(--cw-surface-active);
+  border-color: var(--cw-accent);
+}
+
+.cw-btn:focus-visible {
+  outline: 3px solid var(--cw-accent);
+  outline-offset: 2px;
+}
+
+.cw-sep {
+  flex: 0 0 auto;
+  width: 1px;
+  align-self: stretch;
+  margin: 3px 1px;
+  background: var(--cw-border);
+}
+
+.cw-group {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 3px;
+}
+
+/* Controls that keep their full size; the key buttons absorb the shrinking. */
+.cw-font > .cw-btn,
+.cw-toggle,
+.cw-more {
+  flex: 0 0 auto;
+  width: var(--cw-btn);
+  min-width: var(--cw-btn);
+}
+
+.cw-toggle {
+  color: var(--cw-muted);
+}
+
+.cw-fab {
+  position: fixed;
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  display: none;
+  border-radius: 999px;
+  box-shadow: 0 8px 20px #0009;
+}
+
+.cw-collapsed .cw-fab {
+  display: inline-flex;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cw-btn {
+    transition: none;
+  }
+}
+
+/* Phones in landscape: keep the bar compact so the terminal keeps its rows. */
+@media (max-height: 480px) {
+  :root {
+    --cw-btn: 26px;
+    --cw-btn-font: 12px;
+  }
+
+  #cw-toolbar {
+    padding-top: 3px;
+    padding-bottom: calc(3px + env(safe-area-inset-bottom, 0px));
+  }
+}

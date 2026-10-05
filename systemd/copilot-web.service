@@ -1,0 +1,19 @@
+[Unit]
+Description=Web Terminal for GitHub Copilot CLI (ttyd)
+Documentation=file:///home/oaicstef/src/copilot-web/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=oaicstef
+Group=oaicstef
+WorkingDirectory=/home/oaicstef
+EnvironmentFile=/etc/copilot-ttyd/env
+ExecStart=/usr/local/bin/copilot-web-run
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
